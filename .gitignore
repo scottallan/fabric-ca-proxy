@@ -1,0 +1,35 @@
+# Python cache & compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment folders
+venv/
+.venv/
+env/
+.env/ # Also ignore hidden .env folder sometimes created by tools
+
+# Environment variables file(s) - CRITICAL
+.env
+.env.*
+!*.env.example # Allow example file in git
+
+# IDE configuration folders/files
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
