@@ -9,6 +9,8 @@ venv/
 env/
 .env/ # Also ignore hidden .env folder sometimes created by tools
 
+#Key Material - CRITICAL
+*.key
 # Environment variables file(s) - CRITICAL
 .env
 .env.*

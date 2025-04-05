@@ -5,8 +5,13 @@ from flask import Flask, request, jsonify, make_response
 import logging
 import sys
 import traceback # Import traceback for detailed error logging
+from dotenv import load_dotenv
 
+load_dotenv()
 # --- Basic Logging Setup ---
+
+do_servicenowvalidation = False
+
 # Configure logging to output to stdout, suitable for containers/systemd
 logging.basicConfig(
     level=logging.INFO,
@@ -36,7 +41,9 @@ FABRIC_CA_SERVER_URL = os.environ.get("FABRIC_CA_SERVER_URL")
 if not FABRIC_CA_SERVER_URL:
     logger.critical("FATAL ERROR: FABRIC_CA_SERVER_URL environment variable not set.")
     sys.exit(1)
-FABRIC_CA_ENROLL_ENDPOINT = f"{FABRIC_CA_SERVER_URL.rstrip('/')}/enroll" # Ensure no double slash
+FABRIC_CA_BASE_URL = FABRIC_CA_SERVER_URL.rstrip('/')
+FABRIC_CA_ENROLL_ENDPOINT = f"{FABRIC_CA_BASE_URL}/enroll"
+FABRIC_CA_REGISTER_ENDPOINT = f"{FABRIC_CA_BASE_URL}/register" # <-- New Endpoint URL
 
 # ServiceNow Configuration
 SN_INSTANCE = os.environ.get("SERVICENOW_INSTANCE")
@@ -91,18 +98,19 @@ def validate_ticket_request(request_id: str) -> bool:
     headers = {"Accept": "application/json"}
     auth = (SN_USER, SN_PASSWORD) # Basic Auth
 
-    # Make API Call
-    try:
-        response = requests.get(
-            api_url,
-            params=params,
-            headers=headers,
-            auth=auth,
-            timeout=10 # Timeout for the API call (seconds)
-        )
-        logger.info(f"ServiceNow API response status for {request_id}: {response.status_code}")
+    if do_servicenowvalidation:
+       # Make API Call
+       try:
+         response = requests.get(
+              api_url,
+              params=params,
+              headers=headers,
+              auth=auth,
+              timeout=10 # Timeout for the API call (seconds)
+         )
+         logger.info(f"ServiceNow API response status for {request_id}: {response.status_code}")
 
-        if response.status_code == 200:
+         if response.status_code == 200:
             response_data = response.json()
             if response_data.get("result") and len(response_data["result"]) > 0:
                 # Record found matching the ID and Approved state
@@ -112,24 +120,150 @@ def validate_ticket_request(request_id: str) -> bool:
                 # No record found matching the criteria
                 logger.warning(f"Validation FAILED: No ServiceNow record found for {request_id} with status '{SN_APPROVAL_VALUE}'. Query: {query}")
                 return False
-        else:
+         else:
             # Handle ServiceNow API errors (auth failure, table not found, etc.)
             error_details = response.text # Log raw text for debugging
             logger.error(f"Validation FAILED: ServiceNow API returned status {response.status_code} for {request_id}. Response snippet: {error_details[:200]}") # Log snippet
             return False
 
-    except requests.exceptions.Timeout:
+       except requests.exceptions.Timeout:
         logger.error(f"Validation FAILED: Timeout connecting to ServiceNow API for {request_id}.")
         return False
-    except requests.exceptions.ConnectionError as e:
+       except requests.exceptions.ConnectionError as e:
         logger.error(f"Validation FAILED: Connection error to ServiceNow API for {request_id}: {e}")
         return False
-    except requests.exceptions.RequestException as e:
+       except requests.exceptions.RequestException as e:
         logger.error(f"Validation FAILED: Error during ServiceNow API request for {request_id}: {e}")
         return False
-    except Exception as e: # Catch potential JSON parsing errors or other issues
+       except Exception as e: # Catch potential JSON parsing errors or other issues
         logger.error(f"Validation FAILED: Unexpected error during ServiceNow validation for {request_id}: {e}", exc_info=True) # Log traceback
         return False
+
+    else:
+     return True 
+
+# --- Helper Function for Common Request Handling ---
+# Optional: Refactor common logic to avoid repetition
+def handle_proxy_request(endpoint_name: str, downstream_url: str):
+    """Handles common logic for proxy requests: API key, RequestId, body/header extraction."""
+    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+    logger.info(f"--- New Request ({endpoint_name}) --- Client: {client_ip}, Method: {request.method}, URL: {request.url}")
+    logger.debug(f"Incoming Query Params: {request.args}")
+
+    # --- 0. Validate Proxy API Key ---
+    provided_api_key = request.headers.get('x-api-key')
+    if not provided_api_key or provided_api_key not in VALID_PROXY_API_KEYS:
+        logger.warning(f"Unauthorized (Client: {client_ip}, Endpoint: {endpoint_name}): Missing or invalid 'x-api-key' header.")
+        return jsonify({
+            "success": False, "errors": [{"code": 0, "message": "Unauthorized: Missing or invalid API key."}],
+            "messages": [], "result": None
+        }), 401
+
+    logger.info(f"Proxy API Key validated successfully for client {client_ip} (Endpoint: {endpoint_name}).")
+
+    # --- 1. Extract RequestId & Validate via ServiceNow ---
+    request_id = request.args.get('RequestId')
+    if not request_id:
+        logger.warning(f"Validation Error (Client: {client_ip}, Endpoint: {endpoint_name}): 'RequestId' query parameter is missing.")
+        return jsonify({
+            "success": False, "errors": [{"code": 0, "message": "Missing 'RequestId' query parameter."}],
+            "messages": [], "result": None
+        }), 400
+
+    if not validate_ticket_request(request_id):
+        logger.warning(f"Validation Failed (Client: {client_ip}, Endpoint: {endpoint_name}): RequestId '{request_id}' not approved or invalid via ServiceNow.")
+        return jsonify({
+            "success": False, "errors": [{"code": 0, "message": f"RequestId '{request_id}' is not approved or invalid."}],
+            "messages": [], "result": None
+        }), 403
+
+    logger.info(f"RequestId '{request_id}' validated successfully via ServiceNow (Endpoint: {endpoint_name}).")
+
+    # --- 2. Extract Body and Headers for Downstream ---
+    try:
+        downstream_body = request.get_data()
+        if not downstream_body: raise ValueError("Request body is empty")
+        if not request.is_json: raise ValueError("Request Content-Type must be application/json")
+        request.get_json(silent=True) # Validate structure
+    except Exception as e:
+        logger.error(f"Error reading/validating request body (Client: {client_ip}, RequestId: {request_id}, Endpoint: {endpoint_name}): {e}")
+        return jsonify({
+            "success": False, "errors": [{"code": 0, "message": f"Invalid or missing JSON request body: {e}"}],
+            "messages": [], "result": None
+        }), 400
+
+    # Get Authorization header (for downstream Fabric CA)
+    # IMPORTANT: For /register, this MUST be the registrar's credentials.
+    # IMPORTANT: For /enroll, this MUST be the enrolling user's credentials (ID/Secret).
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        logger.error(f"Auth Error (Client: {client_ip}, RequestId: {request_id}, Endpoint: {endpoint_name}): Missing 'Authorization' header for downstream CA.")
+        return jsonify({
+            "success": False, "errors": [{"code": 0, "message": f"Missing Authorization header for CA {endpoint_name}."}],
+            "messages": [], "result": None
+        }), 400
+
+    forward_headers = {}
+    forward_headers['Authorization'] = auth_header
+    if 'Content-Type' in request.headers: forward_headers['Content-Type'] = request.headers['Content-Type']
+    if 'Accept' in request.headers: forward_headers['Accept'] = request.headers['Accept']
+
+    logger.info(f"Proxying RequestId '{request_id}' to Downstream URL: {downstream_url}")
+    logger.debug(f"Forwarding Headers: {list(forward_headers.keys())}")
+
+    # Return processed data for the specific endpoint handler to use
+    return forward_headers, downstream_body, request_id, None # Return None for error response slot
+
+# --- Helper Function for Downstream Call ---
+def make_downstream_call(request_id: str, downstream_url: str, forward_headers: dict, downstream_body: bytes):
+    """Makes the POST request to the downstream CA and handles responses/errors."""
+    try:
+        response = requests.post(
+            downstream_url,
+            headers=forward_headers,
+            data=downstream_body,
+            timeout=20
+        )
+        logger.info(f"Downstream CA Response Status for RequestId '{request_id}': {response.status_code} ({downstream_url})")
+
+        # Forward the CA's response
+        proxy_response = make_response(response.content, response.status_code)
+        for header in ['Content-Type', 'Content-Length', 'Date']:
+             if header in response.headers:
+                  proxy_response.headers[header] = response.headers[header]
+        proxy_response.headers['X-Proxy-Audit-RequestId'] = request_id
+        return proxy_response
+
+    except requests.exceptions.Timeout:
+        logger.error(f"Downstream Error (RequestId: {request_id}, URL: {downstream_url}): Service timed out.")
+        return jsonify({
+            "success": False, "errors": [{"code": 0, "message": f"Downstream service timeout ({downstream_url})."}],
+            "messages": [], "result": None
+        }), 504 # Gateway Timeout
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"Downstream Error (RequestId: {request_id}, URL: {downstream_url}): Connection error: {e}")
+        return jsonify({
+            "success": False, "errors": [{"code": 0, "message": f"Downstream service connection error ({downstream_url})."}],
+            "messages": [], "result": None
+        }), 502 # Bad Gateway
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Downstream Error (RequestId: {request_id}, URL: {downstream_url}): Request failed: {e}")
+        error_message = f"Proxy error during request to downstream service: {e}"
+        if e.response is not None:
+            error_message += f" Downstream Status: {e.response.status_code}. Response Snippet: {e.response.text[:200]}"
+        return jsonify({
+            "success": False, "errors": [{"code": 0, "message": error_message}],
+            "messages": [], "result": None
+        }), 502 # Bad Gateway
+    except Exception as e:
+        logger.error(f"Unexpected Proxy Error (RequestId: {request_id}, URL: {downstream_url}): {e}", exc_info=True)
+        detailed_error = traceback.format_exc()
+        logger.error(detailed_error)
+        return jsonify({
+            "success": False, "errors": [{"code": 0, "message": "An unexpected error occurred in the proxy."}],
+            "messages": [], "result": None
+        }), 500 # Internal Server Error
+
 
 # --- Proxy Enrollment Endpoint ---
 @app.route('/proxy/enroll', methods=['POST'])
@@ -137,130 +271,36 @@ def proxy_enroll():
     """
     Receives Fabric CA enrollment requests, validates Proxy API Key, validates
     RequestId against ServiceNow, and proxies valid requests to the Fabric CA /enroll endpoint.
+    Requires Basic Auth header with ENROLLING identity's credentials.
     """
-    client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
-    logger.info(f"--- New Request --- Client: {client_ip}, Method: {request.method}, URL: {request.url}")
-    logger.debug(f"Incoming Query Params: {request.args}") # Use debug for less critical info
+    # Use helper to handle common checks
+    result = handle_proxy_request('enroll', FABRIC_CA_ENROLL_ENDPOINT)
+    if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], int):
+        return result # Return error response directly if validation failed
 
-    # --- 0. Validate Proxy API Key ---
-    provided_api_key = request.headers.get('x-api-key')
-    if not provided_api_key or provided_api_key not in VALID_PROXY_API_KEYS:
-        logger.warning(f"Unauthorized (Client: {client_ip}): Missing or invalid 'x-api-key' header.")
-        # Provide a generic error message, don't reveal if key was present but wrong
-        return jsonify({
-            "success": False, "errors": [{"code": 0, "message": "Unauthorized: Missing or invalid API key."}],
-            "messages": [], "result": None
-        }), 401 # Unauthorized - Authentication to the proxy itself failed
+    forward_headers, downstream_body, request_id, _ = result # Unpack successful result
 
-    logger.info(f"Proxy API Key validated successfully for client {client_ip}.")
+    # Make the specific downstream call for enroll
+    return make_downstream_call(request_id, FABRIC_CA_ENROLL_ENDPOINT, forward_headers, downstream_body)
 
-    # --- 1. Extract RequestId & Validate via ServiceNow ---
-    request_id = request.args.get('RequestId')
-    if not request_id:
-        logger.warning(f"Validation Error (Client: {client_ip}): 'RequestId' query parameter is missing.")
-        return jsonify({
-            "success": False, "errors": [{"code": 0, "message": "Missing 'RequestId' query parameter."}],
-            "messages": [], "result": None
-        }), 400 # Bad Request - Client request is malformed
 
-    if not validate_ticket_request(request_id):
-        # Reason logged inside validate_ticket_request
-        logger.warning(f"Validation Failed (Client: {client_ip}): RequestId '{request_id}' not approved or invalid via ServiceNow.")
-        return jsonify({
-            "success": False, "errors": [{"code": 0, "message": f"RequestId '{request_id}' is not approved or invalid."}],
-            "messages": [], "result": None
-        }), 403 # Forbidden - User is authenticated to proxy, but request is forbidden by business logic (ServiceNow state)
+# --- Proxy Registration Endpoint --- <<< NEW ENDPOINT
+@app.route('/proxy/register', methods=['POST'])
+def proxy_register():
+    """
+    Receives Fabric CA registration requests, validates Proxy API Key, validates
+    RequestId against ServiceNow, and proxies valid requests to the Fabric CA /register endpoint.
+    Requires Basic Auth header with REGISTRAR identity's credentials.
+    """
+    # Use helper to handle common checks
+    result = handle_proxy_request('register', FABRIC_CA_REGISTER_ENDPOINT)
+    if isinstance(result, tuple) and len(result) == 2 and isinstance(result[1], int):
+        return result # Return error response directly if validation failed
 
-    logger.info(f"RequestId '{request_id}' validated successfully via ServiceNow. Proceeding to proxy.")
+    forward_headers, downstream_body, request_id, _ = result # Unpack successful result
 
-    # --- 2. Extract Body and Headers for Downstream ---
-    try:
-        downstream_body = request.get_data()
-        if not downstream_body: raise ValueError("Request body is empty")
-        if not request.is_json: raise ValueError("Request Content-Type must be application/json")
-        # Try parsing JSON to catch errors early, but send raw bytes
-        request.get_json(silent=True) # Use silent=True if we just want to validate format
-    except Exception as e:
-        logger.error(f"Error reading/validating request body (Client: {client_ip}, RequestId: {request_id}): {e}")
-        return jsonify({
-            "success": False, "errors": [{"code": 0, "message": f"Invalid or missing JSON request body: {e}"}],
-            "messages": [], "result": None
-        }), 400 # Bad Request - Body is malformed
-
-    forward_headers = {}
-    # This is the Authorization header for the downstream Fabric CA
-    auth_header = request.headers.get('Authorization')
-    content_type_header = request.headers.get('Content-Type')
-
-    if not auth_header:
-        logger.error(f"Auth Error (Client: {client_ip}, RequestId: {request_id}): Missing 'Authorization' header for downstream CA.")
-        # 400 Bad Request seems appropriate because the client request is missing a component
-        # needed for the intended downstream operation, even if authenticated to the proxy.
-        return jsonify({
-            "success": False, "errors": [{"code": 0, "message": "Missing Authorization header for CA enrollment."}],
-            "messages": [], "result": None
-        }), 400
-
-    forward_headers['Authorization'] = auth_header
-    if content_type_header: forward_headers['Content-Type'] = content_type_header
-    # Forward 'Accept' header if client sent it
-    if 'Accept' in request.headers: forward_headers['Accept'] = request.headers['Accept']
-
-    logger.info(f"Proxying RequestId '{request_id}' to Downstream URL: {FABRIC_CA_ENROLL_ENDPOINT}")
-    logger.debug(f"Forwarding Headers: {list(forward_headers.keys())}") # Log only header keys for security
-
-    # --- 3. Make Downstream Fabric CA Call ---
-    try:
-        response = requests.post(
-            FABRIC_CA_ENROLL_ENDPOINT,
-            headers=forward_headers,
-            data=downstream_body, # Send raw body bytes
-            timeout=20 # Slightly longer timeout for CA operations may be needed
-        )
-        logger.info(f"Downstream CA Response Status for RequestId '{request_id}': {response.status_code}")
-
-        # --- 4. Return Downstream Response ---
-        proxy_response = make_response(response.content, response.status_code)
-        # Forward relevant headers from CA response (especially Content-Type)
-        for header in ['Content-Type', 'Content-Length', 'Date']:
-             if header in response.headers:
-                  proxy_response.headers[header] = response.headers[header]
-        # Add custom header for audit trail
-        proxy_response.headers['X-Proxy-Audit-RequestId'] = request_id
-        return proxy_response
-
-    except requests.exceptions.Timeout:
-        logger.error(f"Downstream Error (RequestId: {request_id}): Fabric CA timed out.")
-        return jsonify({
-            "success": False, "errors": [{"code": 0, "message": "Downstream Fabric CA service timeout."}],
-            "messages": [], "result": None
-        }), 504 # Gateway Timeout
-    except requests.exceptions.ConnectionError as e:
-        logger.error(f"Downstream Error (RequestId: {request_id}): Could not connect to Fabric CA: {e}")
-        return jsonify({
-            "success": False, "errors": [{"code": 0, "message": "Downstream Fabric CA service connection error."}],
-            "messages": [], "result": None
-        }), 502 # Bad Gateway
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Downstream Error (RequestId: {request_id}): Fabric CA request failed: {e}")
-        error_message = f"Proxy error during request to Fabric CA: {e}"
-        # Try to include downstream response info if available
-        if e.response is not None:
-            # Avoid logging potentially large response bodies in production logs
-            error_message += f" Downstream Status: {e.response.status_code}. Downstream Response Snippet: {e.response.text[:200]}"
-        return jsonify({
-            "success": False, "errors": [{"code": 0, "message": error_message}],
-            "messages": [], "result": None
-        }), 502 # Bad Gateway
-    except Exception as e: # Catch-all for unexpected errors
-        logger.error(f"Unexpected Proxy Error (RequestId: {request_id}): {e}", exc_info=True)
-        # Log the full traceback for unexpected errors
-        detailed_error = traceback.format_exc()
-        logger.error(detailed_error)
-        return jsonify({
-            "success": False, "errors": [{"code": 0, "message": "An unexpected error occurred in the proxy."}],
-            "messages": [], "result": None
-        }), 500 # Internal Server Error
+    # Make the specific downstream call for register
+    return make_downstream_call(request_id, FABRIC_CA_REGISTER_ENDPOINT, forward_headers, downstream_body)
 
 
 # --- Run the App ---
