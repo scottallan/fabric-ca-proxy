@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This application acts as a secure proxy gateway for enrolling identities with a Hyperledger Fabric CA. It enhances security and auditability by:
+This application acts as a secure proxy gateway for both registering '/proxy/register' and enrolling '/proxy/enroll' identities with a Hyperledger Fabric CA. It enhances security and auditability by:
 
 1.  **Requiring client authentication** via a mandatory `x-api-key` header.
 2.  Accepting enrollment requests only via its single endpoint (`POST /proxy/enroll`).
@@ -14,7 +14,8 @@ This application acts as a secure proxy gateway for enrolling identities with a 
 
 ## Features
 
-* Single endpoint: `POST /proxy/enroll`
+* Provides an endpoint for registration: `POST /proxy/register`
+* Provides an endpoint: `POST /proxy/enroll`
 * Requires client authentication via `x-api-key` header.
 * Mandatory `RequestId` query parameter for ServiceNow ticket association.
 * Integration with ServiceNow Table API for request validation based on ticket status.
@@ -55,6 +56,47 @@ This application is configured entirely through environment variables. **All var
 | `FLASK_DEBUG`               | (Optional) Set to `True` or `1` to enable Flask debug mode (auto-reload, detailed errors). **Defaults to `False`**.    | `True`                                |
 
 **IMPORTANT:** Determining the correct `SERVICENOW_APPROVAL_FIELD` and `SERVICENOW_APPROVAL_VALUE` is essential. Inspect the relevant table and workflow configuration in your ServiceNow instance. Use strong, unique values for `PROXY_API_KEYS`.
+
+### Using the `/proxy/register` Endpoint
+
+This endpoint allows authorized clients to register new identities (users, peers, etc.) with the Fabric CA.
+
+**Request:**
+
+* **Method:** `POST`
+* **URL:** `/proxy/register?RequestId=YOUR_SERVICENOW_TICKET`
+* **Headers:**
+    * `x-api-key`: Your valid API key for authenticating to *this proxy*.
+    * `Authorization`: **CRITICAL:** HTTP Basic Authentication credentials for an existing identity on the Fabric CA that has **registrar privileges** (e.g., `hf.Registrar` attribute). The format is `Basic base64(registrar_enrollment_id:registrar_enrollment_secret)`. **This is NOT the ID/secret of the user being registered.**
+    * `Content-Type`: `application/json`
+* **Query Parameter:**
+    * `RequestId`: The ServiceNow ticket number associated with this registration request (must be in the configured "Approved" state).
+* **Body:** A JSON object specifying the details of the identity *to be registered*. Example:
+    ```json
+    {
+      "id": "newUser1",
+      "type": "client",
+      "affiliation": "org1.department1",
+      "max_enrollments": 1,
+      "secret": "newUser1Password", // Optional: CA generates if omitted
+      "attributes": [
+        {"name": "role", "value": "auditor", "ecert": true}
+      ]
+    }
+    ```
+    *(Refer to Fabric CA documentation for all available registration fields.)*
+
+**Response:**
+
+* **Success (2xx):** A JSON response from the Fabric CA, typically including the generated secret if one wasn't provided in the request:
+    ```json
+    {
+      "secret": "generatedPasswordOrProvidedPassword"
+    }
+    ```
+* **Proxy/Validation Error (4xx):** JSON error indicating missing API key (401), invalid/unapproved `RequestId` (403), missing `Authorization` or bad body (400).
+* **CA Error (4xx/5xx forwarded):** JSON error from the Fabric CA indicating issues like the registrar not having permission (401 from CA), duplicate ID (e.g., 409 from CA), bad request data (e.g., 400 from CA), or internal CA errors.
+* **Proxy Downstream Error (5xx):** JSON error indicating the proxy couldn't reach the CA (502, 504).
 
 ## Local Setup & Running (Development)
 
@@ -105,6 +147,64 @@ This application is configured entirely through environment variables. **All var
 ## Testing
 
 Use `curl` or a similar tool.
+
+### Testing /proxy/register
+
+# --- Prepare Registrar Credentials ---
+# Replace with YOUR registrar's enrollment ID and secret
+REGISTRAR_ID="admin"
+REGISTRAR_SECRET="adminpw"
+REGISTRAR_AUTH=$(echo -n "${REGISTRAR_ID}:${REGISTRAR_SECRET}" | base64)
+
+# --- Prepare Registration Body ---
+# Create register_request.json
+cat << EOF > register_request.json
+{
+  "id": "testUserFromProxy",
+  "type": "client",
+  "affiliation": "org1",
+  "max_enrollments": 2
+}
+EOF
+
+# --- Run Tests ---
+
+# Successful Registration (using registrar auth)
+curl -X POST \
+  "http://localhost:5002/proxy/register?RequestId=TICKET-APPROVED-FOR-REG" \
+  -H "x-api-key: ${PROXY_KEY}" \
+  -H "Authorization: Basic ${REGISTRAR_AUTH}" \
+  -H "Content-Type: application/json" \
+  -d @register_request.json \
+  -v
+
+# Registration Attempt with Non-Registrar Credentials (Expect error from CA)
+# Use ENCODED_AUTH from the /enroll example (non-registrar)
+curl -X POST \
+  "http://localhost:5002/proxy/register?RequestId=TICKET-APPROVED-FOR-REG" \
+  -H "x-api-key: ${PROXY_KEY}" \
+  -H "Authorization: Basic ${ENCODED_AUTH}" \
+  -H "Content-Type: application/json" \
+  -d @register_request.json \
+  -v
+
+# Registration Attempt with Invalid RequestId
+curl -X POST \
+  "http://localhost:5002/proxy/register?RequestId=TICKET-PENDING" \
+  -H "x-api-key: ${PROXY_KEY}" \
+  -H "Authorization: Basic ${REGISTRAR_AUTH}" \
+  -H "Content-Type: application/json" \
+  -d @register_request.json \
+  -v
+
+# Registration Attempt with Invalid Proxy API Key
+curl -X POST \
+  "http://localhost:5002/proxy/register?RequestId=TICKET-APPROVED-FOR-REG" \
+  -H "x-api-key: INVALID-KEY" \
+  -H "Authorization: Basic ${REGISTRAR_AUTH}" \
+  -H "Content-Type: application/json" \
+  -d @register_request.json \
+  -v
 
 1.  **Prepare:**
     * Set your valid proxy API key: `PROXY_KEY="your-key-from-PROXY_API_KEYS"`
