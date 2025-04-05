@@ -218,7 +218,7 @@ curl -X POST \
     * Create a sample enrollment request body file (`enroll_request.json`):
         ```json
         {
-          "csr": "-----BEGIN CERTIFICATE REQUEST-----\nMIIC...your_actual_csr_content...=\n-----END CERTIFICATE REQUEST-----\n",
+          "certificate_request": "-----BEGIN CERTIFICATE REQUEST-----\nMIIC...your_actual_csr_content...=\n-----END CERTIFICATE REQUEST-----\n",
           "profile": "tls",
           "caname": "ca-org1"
         }
