@@ -2,3 +2,4 @@ Flask>=2.3.0 # Use a recent stable version
 requests>=2.30.0
 gunicorn>=21.0.0 # Needed for production deployment (optional for local dev)
 # Optional: python-dotenv>=1.0.0 (if loading .env in script)
+python-dotenv>=1.0.0

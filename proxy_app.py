@@ -58,19 +58,19 @@ SN_APPROVAL_FIELD = os.environ.get("SERVICENOW_APPROVAL_FIELD")
 SN_APPROVAL_VALUE = os.environ.get("SERVICENOW_APPROVAL_VALUE")
 
 SN_CONFIG_COMPLETE = all([SN_INSTANCE, SN_TABLE, SN_USER, SN_PASSWORD, SN_APPROVAL_FIELD, SN_APPROVAL_VALUE])
-if not SN_CONFIG_COMPLETE:
+if not SN_CONFIG_COMPLETE and 'TESTING' not in app.config:
     logger.critical("FATAL ERROR: ServiceNow validation configuration is incomplete. "
                      "Check SERVICENOW_INSTANCE, _TABLE, _USER, _PASSWORD, _APPROVAL_FIELD, _APPROVAL_VALUE.")
     sys.exit(1)
 logger.info(f"ServiceNow config loaded: Instance={SN_INSTANCE}, Table={SN_TABLE}, User={SN_USER}, ID Field={SN_ID_FIELD}, Approval Field={SN_APPROVAL_FIELD}, Approved Value={SN_APPROVAL_VALUE}")
 
+# --- Flask App Setup ---
+app = Flask(__name__)
+
 # Optional: Application Port and Debug Mode
 APP_PORT = int(os.environ.get("PORT", 5002))
 # Use FLASK_DEBUG for consistency with Flask's own environment variable
 FLASK_DEBUG_MODE = os.environ.get("FLASK_DEBUG", "False").lower() in ["true", "1", "t"]
-
-# --- Flask App Setup ---
-app = Flask(__name__)
 
 # --- ServiceNow Validation Function ---
 def validate_ticket_request(request_id: str) -> bool:
