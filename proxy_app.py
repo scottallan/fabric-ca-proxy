@@ -222,6 +222,7 @@ def make_downstream_call(request_id: str, downstream_url: str, forward_headers: 
             downstream_url,
             headers=forward_headers,
             data=downstream_body,
+	    verify=False,
             timeout=20
         )
         logger.info(f"Downstream CA Response Status for RequestId '{request_id}': {response.status_code} ({downstream_url})")

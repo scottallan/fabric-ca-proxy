@@ -415,3 +415,21 @@ Running the Flask development server (`python proxy_app.py`) is **NOT suitable f
 * **Input Validation:** The code validates the presence and format of required inputs (API Key, RequestId, JSON body, Auth header). Consider adding schema validation for the JSON body if strict structure is required.
 * **Rate Limiting:** Implement rate limiting (e.g., in Nginx or using Flask extensions) to prevent brute-force attacks and resource exhaustion.
 * **Logging:** Be mindful of logging sensitive data. The current code avoids logging full request bodies or sensitive headers at INFO level, but review DEBUG logs carefully if enabled. Ensure logs are stored securely and rotated.
+
+## Starting a Defalt CA Server
+
+here is a sample docker run to start up a fabric ca server in debug
+
+# Example docker run command (adapt volumes, ports, env vars as needed)
+
+# Make sure to adjust the volume path and any other specific configurations
+# like CA name, bootstrap user/pass, TLS settings etc.
+docker run --rm \
+  --name fabric-ca-server-debug \
+  -p 7054:7054 \
+  -e FABRIC_CA_SERVER_HOME=/etc/hyperledger/fabric-ca-server \
+  -e FABRIC_CA_SERVER_CA_NAME=my-org-ca \
+  -e FABRIC_CA_SERVER_TLS_ENABLED=true \
+  -v $(pwd)/fabric-ca-server-home:/etc/hyperledger/fabric-ca-server \
+  hyperledger/fabric-ca:1.5.15 \
+  fabric-ca-server start -b admin:adminpw --ca.name my-org-ca -d
