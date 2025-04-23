@@ -483,7 +483,7 @@ ls -l $FABRIC_CA_CLIENT_HOME
 ```
 
 * Register a user I.e. appUser3
-  ```
+```
 # --- Set Environment Variables for the New User ---
 export NEW_USER_ID=appUser1
 export NEW_USER_SECRET=appUser1pw
@@ -515,6 +515,6 @@ docker run --rm \
 # If successful, the command should output the password (secret) for the registered user.
 # Example output: "Password: appUser1pw"
 # There won't be new files created locally for registration, it just updates the CA's internal database.
-  ```
+```
 
 
