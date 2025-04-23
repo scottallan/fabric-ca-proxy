@@ -438,7 +438,7 @@ docker run --rm \
   -e FABRIC_CA_SERVER_TLS_ENABLED=true \
   -v $(pwd)/fabric-ca-server-home:/etc/hyperledger/fabric-ca-server \
   hyperledger/fabric-ca:1.5.15 \
-  fabric-ca-server start -b adminame my-org-ca -dn:adminpw --ca.name my-org-ca -d
+  fabric-ca-server start -b admin:adminpw --ca.name my-org-ca -d
 
 * Registering a user with HLF CA
 * First get the admin MSP
