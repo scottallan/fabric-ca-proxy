@@ -480,6 +480,41 @@ docker run --rm \
 # You should see directories like 'cacerts', 'keystore', 'signcerts', etc.
 echo "Check for MSP files in: $FABRIC_CA_CLIENT_HOME"
 ls -l $FABRIC_CA_CLIENT_HOME
-```  
+```
+
+* Register a user I.e. appUser3
+  ```
+# --- Set Environment Variables for the New User ---
+export NEW_USER_ID=appUser1
+export NEW_USER_SECRET=appUser1pw
+export NEW_USER_TYPE=client # Type: client, peer, orderer, auditor
+# Affiliation must exist in the CA server config (e.g., org1.department1)
+export NEW_USER_AFFILIATION=org1.department1 # ADJUST AS NEEDED
+
+# Other variables (FABRIC_CA_CLIENT_HOME, FABRIC_CA_SERVER_HOSTPORT, CA_TLS_CERTFILE)
+# should still be set from Step 1.
+
+# --- Run the registration command using Docker ---
+docker run --rm \
+  -v "$FABRIC_CA_CLIENT_HOME:/etc/hyperledger/fabric-ca-client/msp" \
+  -v "$CA_TLS_CERTFILE:/certs/ca-cert.pem" \
+  --network host \
+  hyperledger/fabric-ca:1.5.15 \
+  fabric-ca-client register \
+  -u https://${FABRIC_CA_SERVER_HOSTPORT} \
+  -M /etc/hyperledger/fabric-ca-client/msp \
+  --id.name $NEW_USER_ID \
+  --id.secret $NEW_USER_SECRET \
+  --id.type $NEW_USER_TYPE \
+  --id.affiliation $NEW_USER_AFFILIATION \
+  # Optional: Add custom attributes
+  # --id.attrs 'admin=false:ecert,department=IT:ecert' \
+  --tls.certfiles /certs/ca-cert.pem
+
+# --- Verification ---
+# If successful, the command should output the password (secret) for the registered user.
+# Example output: "Password: appUser1pw"
+# There won't be new files created locally for registration, it just updates the CA's internal database.
+  ```
 
 
