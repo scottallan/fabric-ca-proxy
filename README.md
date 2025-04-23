@@ -227,7 +227,7 @@ curl -X POST \
       ```
         CSR_PEM_CONTENT=$(awk 'NF {printf "%s\\n", $0}' ${CSR_FILE})
       ```
-      replace${CSR_FILE} with your actual CSR file locaiton
+      replace${CSR_FILE} with your actual CSR file location
        
 
 2.  **Run Tests:** (Replace `TICKET-APPROVED` with a valid, approved ticket number from your ServiceNow instance, and `TICKET-PENDING` with one that is not approved).
@@ -438,6 +438,48 @@ docker run --rm \
   -e FABRIC_CA_SERVER_TLS_ENABLED=true \
   -v $(pwd)/fabric-ca-server-home:/etc/hyperledger/fabric-ca-server \
   hyperledger/fabric-ca:1.5.15 \
-  fabric-ca-server start -b admin:adminpw --ca.name my-org-ca -d
+  fabric-ca-server start -b adminame my-org-ca -dn:adminpw --ca.name my-org-ca -d
+
+* Registering a user with HLF CA
+* First get the admin MSP
+```
+# --- Set Environment Variables (adjust paths and credentials as needed) ---
+
+# Path on your HOST machine to store the enrolled admin's MSP files
+export FABRIC_CA_CLIENT_HOME=$HOME/fabric-ca/admin/msp
+
+# URL and host:port of your running Fabric CA server
+export FABRIC_CA_SERVER_HOSTPORT=localhost:7054
+
+# Bootstrap admin user credentials
+export BOOTSTRAP_ADMIN_USER=admin
+export BOOTSTRAP_ADMIN_PASS=adminpw
+
+# Path on your HOST machine to the CA server's TLS root certificate
+# This is likely inside the volume you mounted for the server, e.g., ./fabric-ca-server-home/
+export CA_TLS_CERTFILE=$(pwd)/fabric-ca-server-home/ca-cert.pem # ADJUST THIS PATH!
+
+# --- Create directory for the admin's MSP ---
+mkdir -p $FABRIC_CA_CLIENT_HOME
+
+# --- Run the enrollment command using Docker ---
+# Note: --network host allows the container to easily access localhost:7054 on your host.
+# If your CA is on a different machine or Docker network, adjust accordingly.
+docker run --rm \
+  -v "$FABRIC_CA_CLIENT_HOME:/etc/hyperledger/fabric-ca-client/msp" \
+  -v "$CA_TLS_CERTFILE:/certs/ca-cert.pem" \
+  --network host \
+  hyperledger/fabric-ca:1.5.15 \
+  fabric-ca-client enroll \
+  -u https://${BOOTSTRAP_ADMIN_USER}:${BOOTSTRAP_ADMIN_PASS}@${FABRIC_CA_SERVER_HOSTPORT} \
+  -M /etc/hyperledger/fabric-ca-client/msp \
+  --tls.certfiles /certs/ca-cert.pem
+
+# --- Verification ---
+# Check if the MSP files were created in your local $FABRIC_CA_CLIENT_HOME directory.
+# You should see directories like 'cacerts', 'keystore', 'signcerts', etc.
+echo "Check for MSP files in: $FABRIC_CA_CLIENT_HOME"
+ls -l $FABRIC_CA_CLIENT_HOME
+```  
 
 
