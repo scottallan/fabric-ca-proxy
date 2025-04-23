@@ -210,7 +210,7 @@ curl -X POST \
     * Set your valid proxy API key: `PROXY_KEY="your-key-from-PROXY_API_KEYS"`
     * Generate Fabric CA HTTP Basic Auth credentials:
         ```bash
-        # Replace with your actual enrollment ID and secret for Fabric CA
+        # Replace with your actual enrollment ID and secret for Fabric CA i.e appUser1 / appUser1pw
         ENROLL_ID="your_fabric_enroll_id"
         ENROLL_SECRET="your_fabric_enroll_secret"
         ENCODED_AUTH=$(echo -n "${ENROLL_ID}:${ENROLL_SECRET}" | base64)
@@ -223,6 +223,12 @@ curl -X POST \
           "caname": "ca-org1"
         }
         ```
+    * you can prepare the CSR content for the json content using:
+      ```
+        CSR_PEM_CONTENT=$(awk 'NF {printf "%s\\n", $0}' ${CSR_FILE})
+      ```
+      replace${CSR_FILE} with your actual CSR file locaiton
+       
 
 2.  **Run Tests:** (Replace `TICKET-APPROVED` with a valid, approved ticket number from your ServiceNow instance, and `TICKET-PENDING` with one that is not approved).
 
@@ -433,3 +439,5 @@ docker run --rm \
   -v $(pwd)/fabric-ca-server-home:/etc/hyperledger/fabric-ca-server \
   hyperledger/fabric-ca:1.5.15 \
   fabric-ca-server start -b admin:adminpw --ca.name my-org-ca -d
+
+
