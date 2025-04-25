@@ -1,6 +1,7 @@
 {
- "id":"testUserFromProxy",
+ "id":"testUserFromProxy3",
  "type":"client",
- "affiliation":"org1",
+ "secret":"password",
+ "affiliation":"org1.department1",
  "max_enrollments":2
 }

@@ -9,8 +9,14 @@ venv/
 env/
 .env/ # Also ignore hidden .env folder sometimes created by tools
 
+#pcap files and data
+*.pcap
+*.pcap.*
+
 #Key Material - CRITICAL
 *.key
+*.pem
+*.csr
 # Environment variables file(s) - CRITICAL
 .env
 .env.*
