@@ -1,0 +1,7 @@
+{
+ "id":"testUserFromProxy3",
+ "type":"client",
+ "secret":"password",
+ "affiliation":"org1.department1",
+ "max_enrollments":2
+}
