@@ -240,8 +240,9 @@ curl -X POST \
          # Or using paste (GNU specific potentially)
          # CSR_PEM_CONTENT=$(paste -sd R < "${CSR_FILE}") # Replaces newline with R, then sed replaces R with \n
          # CSR_PEM_CONTENT=$(echo "$CSR_PEM_CONTENT" | sed 's/R/\\n/g')
-             * Create a sample enrollment request body file (`enroll_request.json`):
-                 ```json
+        ```
+    * Create a sample enrollment request body file (`enroll_request.json`):
+        ```json
                  {
                    "certificate_request": "-----BEGIN CERTIFICATE REQUEST-----\nMIIC...your_actual_csr_content...=\n-----END CERTIFICATE REQUEST-----\n",
                    "profile": "tls",
