@@ -26,6 +26,7 @@ This application acts as a secure proxy gateway for both registering '/proxy/reg
 
 ## TO DO's
 * Enable TLS on main proxy application
+* Enable storing of key material in an HSM security modules using PKCS11
 
 ## Prerequisites
 
