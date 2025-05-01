@@ -1,7 +1,0 @@
-curl -X POST \
-"http://localhost:5002/proxy/enroll?RequestId=TICKET-APPROVED" \
--H "x-api-key: ${PROXY_KEY}" \
--H "Authorization: Basic ${ENCODED_AUTH}" \
--H "Content-Type: application/json" \
--d @enroll_request.json \
--v
