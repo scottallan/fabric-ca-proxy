@@ -22,7 +22,7 @@ env/
 # Environment variables file(s) - CRITICAL
 .env
 .env.*
-!*.env.example # Allow example file in git
+!.env.example # Allow example file in git
 
 # IDE configuration folders/files
 .idea/

@@ -49,6 +49,11 @@ This application is configured entirely through environment variables. **All var
 | Variable                    | Description                                                                                                           | Example                               |
 | :-------------------------- | :-------------------------------------------------------------------------------------------------------------------- | :------------------------------------ |
 | `PROXY_API_KEYS`            | **Required.** Comma-separated list of valid API keys that clients must send in the `x-api-key` header.                  | `key1-abc,key2-xyz,key3-123`         |
+| `TLS_ENABLED`               | **Optional.** boolean to enable TLS on the poxy.                                                                       | `true,t,1,false,f,0`         |
+| `TLS_CERT_FILE `            | **Optional.** Location of TLS certificate.                  | `/keys/server-cert.pem`         |
+| `TLS_KEY_FILE`              | **Optional.** iocation of the TLS Key.                 | `/keys/server-key.pem`         |
+| `CA_TLS_ENABLED`            | **Optional.** boolean to enable TLS to CA.                  | `true,t,1,false,f,0`         |
+| `CA_TLS_VERIFY`             | **Optional.** Location of the CA Cert or boolean to enable system validation from trust store.                  | `/keys/ca-cert.pem, true, false`         |
 | `FABRIC_CA_SERVER_URL`      | **Required.** Base URL of the target Fabric CA server (including `http://` or `https://`).                              | `http://fabric-ca.org1.example.com:7054` |
 | `SERVICENOW_INSTANCE`       | **Required.** Your ServiceNow instance hostname.                                                                    | `mycompany.service-now.com`           |
 | `SERVICENOW_TABLE`          | **Required.** The ServiceNow table name containing the tickets/requests.                                            | `change_request`                      |
