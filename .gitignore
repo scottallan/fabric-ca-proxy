@@ -1,4 +1,5 @@
 scratch
+tmp
 # Python cache & compiled files
 __pycache__/
 *.py[cod]
