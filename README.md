@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This application acts as a secure proxy gateway for both registering '/proxy/register' and enrolling '/proxy/enroll' identities with a Hyperledger Fabric CA. It enhances security and auditability by:
+This example application acts as a secure proxy gateway for both registering '/proxy/register' and enrolling '/proxy/enroll' identities with a Hyperledger Fabric CA. It enhances security and auditability by:
 
 1.  **Requiring client authentication** via a mandatory `x-api-key` header.
 2.  Accepting registration requests via its endpoing (`POST /proxy/register`)

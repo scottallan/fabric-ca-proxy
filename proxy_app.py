@@ -1,6 +1,7 @@
 import os
 import requests
 import base64
+import ssl
 from flask import Flask, request, jsonify, make_response
 import logging
 import sys
@@ -57,6 +58,10 @@ SN_APPROVAL_FIELD = os.environ.get("SERVICENOW_APPROVAL_FIELD")
 # Exact value in SN_APPROVAL_FIELD indicating "Approved" (e.g., 'Approved', 'complete', '6', '2')
 SN_APPROVAL_VALUE = os.environ.get("SERVICENOW_APPROVAL_VALUE")
 
+# --- Flask App Setup ---
+app = Flask(__name__)
+
+# Check ServiceNow configuration completeness
 SN_CONFIG_COMPLETE = all([SN_INSTANCE, SN_TABLE, SN_USER, SN_PASSWORD, SN_APPROVAL_FIELD, SN_APPROVAL_VALUE])
 if not SN_CONFIG_COMPLETE and 'TESTING' not in app.config:
     logger.critical("FATAL ERROR: ServiceNow validation configuration is incomplete. "
@@ -64,13 +69,41 @@ if not SN_CONFIG_COMPLETE and 'TESTING' not in app.config:
     sys.exit(1)
 logger.info(f"ServiceNow config loaded: Instance={SN_INSTANCE}, Table={SN_TABLE}, User={SN_USER}, ID Field={SN_ID_FIELD}, Approval Field={SN_APPROVAL_FIELD}, Approved Value={SN_APPROVAL_VALUE}")
 
-# --- Flask App Setup ---
-app = Flask(__name__)
-
 # Optional: Application Port and Debug Mode
 APP_PORT = int(os.environ.get("PORT", 5002))
 # Use FLASK_DEBUG for consistency with Flask's own environment variable
 FLASK_DEBUG_MODE = os.environ.get("FLASK_DEBUG", "False").lower() in ["true", "1", "t"]
+
+# --- TLS Configuration ---
+# TLS for proxy server (serving clients)
+TLS_ENABLED = os.environ.get("TLS_ENABLED", "False").lower() in ["true", "1", "t"]
+TLS_CERT_FILE = os.environ.get("TLS_CERT_FILE")
+TLS_KEY_FILE = os.environ.get("TLS_KEY_FILE")
+
+# TLS for downstream Fabric CA server connections
+CA_TLS_ENABLED = os.environ.get("CA_TLS_ENABLED", "False").lower() in ["true", "1", "t"]
+CA_TLS_CERT_FILE = os.environ.get("CA_TLS_CERT_FILE")
+CA_TLS_VERIFY = os.environ.get("CA_TLS_VERIFY", "True").lower() in ["true", "1", "t"]
+
+# Log TLS configuration
+if TLS_ENABLED:
+    if TLS_CERT_FILE and TLS_KEY_FILE and os.path.exists(TLS_CERT_FILE) and os.path.exists(TLS_KEY_FILE):
+        logger.info(f"TLS is ENABLED for the proxy server with cert: {TLS_CERT_FILE}, key: {TLS_KEY_FILE}")
+    else:
+        logger.critical("FATAL ERROR: TLS is enabled but certificate or key file is missing or invalid.")
+        sys.exit(1)
+else:
+    logger.warning("TLS is DISABLED for the proxy server. Consider enabling it for production use.")
+
+if CA_TLS_ENABLED:
+    if CA_TLS_CERT_FILE and os.path.exists(CA_TLS_CERT_FILE):
+        logger.info(f"TLS is ENABLED for Fabric CA connections with cert: {CA_TLS_CERT_FILE}, verify: {CA_TLS_VERIFY}")
+    elif CA_TLS_VERIFY:
+        logger.warning("TLS verification enabled for CA but no CA certificate provided. System CA certificates will be used.")
+    else:
+        logger.warning("TLS enabled for CA but verification is disabled and no CA certificate provided.")
+else:
+    logger.warning("TLS is DISABLED for Fabric CA connections. Consider enabling it for production use.")
 
 # --- ServiceNow Validation Function ---
 def validate_ticket_request(request_id: str) -> bool:
@@ -218,11 +251,16 @@ def handle_proxy_request(endpoint_name: str, downstream_url: str):
 def make_downstream_call(request_id: str, downstream_url: str, forward_headers: dict, downstream_body: bytes):
     """Makes the POST request to the downstream CA and handles responses/errors."""
     try:
+        # Set up TLS verification
+        verify = False
+        if CA_TLS_ENABLED:
+            verify = CA_TLS_CERT_FILE if CA_TLS_VERIFY and CA_TLS_CERT_FILE else CA_TLS_VERIFY
+            
         response = requests.post(
             downstream_url,
             headers=forward_headers,
             data=downstream_body,
-	    verify=False,
+            verify=verify,
             timeout=20
         )
         logger.info(f"Downstream CA Response Status for RequestId '{request_id}': {response.status_code} ({downstream_url})")
@@ -311,7 +349,19 @@ if __name__ == '__main__':
         werkzeug_logger = logging.getLogger('werkzeug')
         werkzeug_logger.setLevel(logging.WARNING)
 
-    logger.info(f"Starting Fabric CA Enrollment Proxy on 0.0.0.0:{APP_PORT} with FLASK_DEBUG={FLASK_DEBUG_MODE}")
+    # Configure SSL context if TLS is enabled
+    ssl_context = None
+    if TLS_ENABLED:
+        try:
+            ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+            ssl_context.load_cert_chain(certfile=TLS_CERT_FILE, keyfile=TLS_KEY_FILE)
+            logger.info(f"SSL context created with certificate: {TLS_CERT_FILE}")
+        except Exception as e:
+            logger.critical(f"Failed to create SSL context: {e}")
+            sys.exit(1)
+    
+    tls_status = "TLS ENABLED" if TLS_ENABLED else "TLS DISABLED"
+    logger.info(f"Starting Fabric CA Enrollment Proxy on 0.0.0.0:{APP_PORT} with {tls_status}, FLASK_DEBUG={FLASK_DEBUG_MODE}")
     # For production, use a WSGI server like Gunicorn (see documentation)
     # The host '0.0.0.0' makes the server accessible externally (important for Docker/deployment)
-    app.run(host='0.0.0.0', port=APP_PORT, debug=FLASK_DEBUG_MODE)
+    app.run(host='0.0.0.0', port=APP_PORT, debug=FLASK_DEBUG_MODE, ssl_context=ssl_context)
