@@ -25,7 +25,6 @@ This example application acts as a secure proxy gateway for both registering '/p
 * Basic logging for request tracking and debugging. 
 
 ## TO DO's
-* Enable TLS on main proxy application
 * Enable storing of key material in an HSM security modules using PKCS11
 
 ## Prerequisites
@@ -49,7 +48,7 @@ This application is configured entirely through environment variables. **All var
 | Variable                    | Description                                                                                                           | Example                               |
 | :-------------------------- | :-------------------------------------------------------------------------------------------------------------------- | :------------------------------------ |
 | `PROXY_API_KEYS`            | **Required.** Comma-separated list of valid API keys that clients must send in the `x-api-key` header.                  | `key1-abc,key2-xyz,key3-123`         |
-| `TLS_ENABLED`               | **Optional.** boolean to enable TLS on the poxy.                                                                       | `true,t,1,false,f,0`         |
+| `TLS_ENABLED`               | **Optional.** boolean to enable TLS on the proxy.                                                                       | `true,t,1,false,f,0`         |
 | `TLS_CERT_FILE `            | **Optional.** Location of TLS certificate.                  | `/keys/server-cert.pem`         |
 | `TLS_KEY_FILE`              | **Optional.** iocation of the TLS Key.                 | `/keys/server-key.pem`         |
 | `CA_TLS_ENABLED`            | **Optional.** boolean to enable TLS to CA.                  | `true,t,1,false,f,0`         |
